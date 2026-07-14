@@ -373,7 +373,15 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: initialpose
+        Value: /initialpose
+    - Class: rviz_default_plugins/PublishPoint
+      Single click: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /clicked_point
     - Class: nav2_rviz_plugins/GoalTool
   Transformation:
     Current:
@@ -402,3 +410,21 @@ Visualization Manager:
       Value: Orbit (rviz_default_plugins)
       Yaw: 3.140000104904175
     Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 2176
+  Hide Left Dock: false
+  Hide Right Dock: false
+  Navigation 2:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd00000000000000000000000000000000000000fb00000000000000000000000000000000000000
+  Selection:
+    collapsed: false
+  Tool Properties:
+    collapsed: false
+  Views:
+    collapsed: false
+  Width: 1978
+  X: 140
+  Y: 54

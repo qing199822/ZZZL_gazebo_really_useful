@@ -75,24 +75,17 @@ FakeVelTransform::FakeVelTransform(const rclcpp::NodeOptions & options)
   // 50Hz Timer to send transform from `robot_base_frame` to `fake_robot_base_frame`
   timer_ = this->create_wall_timer(
     std::chrono::milliseconds(20), std::bind(&FakeVelTransform::publishTransform, this));
-
-  // Initialize controller state (avoids time type mismatch crashes)
-  controller_active_ = false;
 }
 
 void FakeVelTransform::cmdSpinCallback(const example_interfaces::msg::Float32::SharedPtr msg)
 {
-  // CRITICAL FIX: mutex-protected write for spin_speed_
-  std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
   spin_speed_ = msg->data;
 }
 
 void FakeVelTransform::odometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr & msg)
 {
   // NOTE: Haven't synced with local_plan
-  // Use bool flag instead of time subtraction to avoid clock type mismatch crashes
-  if (!controller_active_) {
-    std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
+  if ((rclcpp::Clock().now() - last_controller_activate_time_).seconds() > CONTROLLER_TIMEOUT) {
     current_robot_base_angle_ = tf2::getYaw(msg->pose.pose.orientation);
   }
 }
@@ -102,8 +95,9 @@ void FakeVelTransform::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr
   std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
   const bool is_zero_vel = std::abs(msg->linear.x) < EPSILON && std::abs(msg->linear.y) < EPSILON &&
                            std::abs(msg->angular.z) < EPSILON;
-  // Controller inactive check via bool flag (avoids clock type mismatch)
-  if (is_zero_vel || !controller_active_) {
+  if (
+    is_zero_vel ||
+    (rclcpp::Clock().now() - last_controller_activate_time_).seconds() > CONTROLLER_TIMEOUT) {
     // If received velocity cannot be synchronized, publish it directly
     auto aft_tf_vel = transformVelocity(msg, current_robot_base_angle_);
     cmd_vel_chassis_pub_->publish(aft_tf_vel);
@@ -115,8 +109,7 @@ void FakeVelTransform::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr
 void FakeVelTransform::localPlanCallback(const nav_msgs::msg::Path::ConstSharedPtr & /*msg*/)
 {
   // Consider nav2_controller_server is activated when receiving local_plan
-  std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
-  controller_active_ = true;
+  last_controller_activate_time_ = rclcpp::Clock().now();
 }
 
 void FakeVelTransform::syncCallback(
@@ -124,14 +117,16 @@ void FakeVelTransform::syncCallback(
   const nav_msgs::msg::Path::ConstSharedPtr & /*local_plan_msg*/)
 {
   std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
-  if (!latest_cmd_vel_) {
-    return;
+  geometry_msgs::msg::Twist::SharedPtr current_cmd_vel;
+  {
+    if (!latest_cmd_vel_) {
+      return;
+    }
+    current_cmd_vel = latest_cmd_vel_;
   }
-  geometry_msgs::msg::Twist::SharedPtr current_cmd_vel = latest_cmd_vel_;
 
   current_robot_base_angle_ = tf2::getYaw(odom_msg->pose.pose.orientation);
-  // M7: explicit narrowing cast
-  float yaw_diff = static_cast<float>(current_robot_base_angle_);
+  float yaw_diff = current_robot_base_angle_;
   geometry_msgs::msg::Twist aft_tf_vel = transformVelocity(current_cmd_vel, yaw_diff);
 
   cmd_vel_chassis_pub_->publish(aft_tf_vel);
@@ -143,14 +138,9 @@ void FakeVelTransform::publishTransform()
   t.header.stamp = this->get_clock()->now();
   t.header.frame_id = robot_base_frame_;
   t.child_frame_id = fake_robot_base_frame_;
-
-  // CRITICAL FIX: mutex-protected read of current_robot_base_angle_
-  {
-    std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
-    tf2::Quaternion q;
-    q.setRPY(0, 0, -current_robot_base_angle_);
-    t.transform.rotation = tf2::toMsg(q);
-  }
+  tf2::Quaternion q;
+  q.setRPY(0, 0, -current_robot_base_angle_);
+  t.transform.rotation = tf2::toMsg(q);
   tf_broadcaster_->sendTransform(t);
 }
 
