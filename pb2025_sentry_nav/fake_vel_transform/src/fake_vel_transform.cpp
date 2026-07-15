@@ -72,6 +72,9 @@ FakeVelTransform::FakeVelTransform(const rclcpp::NodeOptions & options)
   sync_->registerCallback(
     std::bind(&FakeVelTransform::syncCallback, this, std::placeholders::_1, std::placeholders::_2));
 
+  // Publish initial transform immediately so TF chain exists from sim start
+  publishTransform();
+
   // 50Hz Timer to send transform from `robot_base_frame` to `fake_robot_base_frame`
   timer_ = this->create_wall_timer(
     std::chrono::milliseconds(20), std::bind(&FakeVelTransform::publishTransform, this));
